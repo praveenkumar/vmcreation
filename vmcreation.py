@@ -128,7 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("image", help="downloaded qcow2 image name")
     args = parser.parse_args()
     if os.getuid():
-        print "Execution Permision Denied (use sudo)"
+        print "Execution Permission Denied (use sudo)"
         sys.exit(1)
     err, returncode = create_pool()
     if returncode:
