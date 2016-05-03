@@ -36,15 +36,14 @@ from shutil import copy
 from random import randint
 
 # Specify vm preferences for your guest
-GUEST= "dev%d" % randint(1000, 3000)
+NAME= "dev%d" % randint(1000, 3000)
 VROOTDISKSIZE="10G"
-VCPUS=2
-VMEM=2048
+VCPUS=1
+VMEM=1024
+BRIDGE="virbr1"
 NETWORK="bridge=virbr1,model=virtio"
 
 # guest image format
-FORMAT="qcow2"
-POOL="vm"
 POOL_PATH="/home/vm"
 
 def system(cmd):
@@ -53,6 +52,7 @@ def system(cmd):
     :param cmd: The command to run.
     :return:  Tuple with (output, err, returncode).
     """
+    print cmd
     ret = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
     out, err = ret.communicate()
@@ -60,68 +60,45 @@ def system(cmd):
     return out, err, returncode
 
 def get_meta_data():
-    meta_data = ("instance-id: iid-{0}\n"
-                 "hostname: {0}\n"
-                 "local-hostname: {0}").format(GUEST)
+    meta_data = ("instance-id: id-{0}\n"
+                 "local-hostname: {0}\n").format(NAME)
     return meta_data
 
 def get_user_data():
     user_data = ("#cloud-config\n"
-                 "hostname: %s"
                  "password: passw0rd\n"
                  "chpasswd: { expire: False }\n"
-                 "ssh_pwauth: True\n",
-                 "package_upgrade: false") % GUEST
+                 "ssh_pwauth: True\n")
     return user_data
 
-def create_pool():
-    if system("virsh pool-list|grep %s -c" % POOL)[2]:
-        return system(("virsh pool-define-as --name {0} --type dir --target {1} && "
-                       "virsh pool-autostart {0} && "
-                       "virsh pool-build {0} &&"
-                       "virsh pool-start {0}").format(POOL, POOL_PATH))[1:]
-    return('', 0)
-
 def create_cloud_init_iso():
-    with open('user_data','w') as fh:
+    with open('user-data','w') as fh:
         fh.write(get_user_data())
-    with open('meta_data','w') as fh:
+    with open('meta-data','w') as fh:
         fh.write(get_meta_data())
-    return system(("genisoimage -output configuration.iso "
-        "-volid cidata -joliet -rock user_data meta_data"))[1:]
-
-
-def copy_cloud_init_iso():
-    if not create_cloud_init_iso()[1]:
-        err, returncode = system("mv configuration.iso %s/%s.configuration.iso" % (POOL_PATH, GUEST))[1:]
-        if err:
-            return (err, returncode)
-        return system("virsh pool-refresh %s" % POOL)[1:]
-    return ('cloud init iso not created\n', 1)
-
+    return system(("genisoimage -output %s/%s.configuration.iso "
+        "-volid cidata -joliet -rock user-data meta-data") % (POOL_PATH, NAME))[1:]
 
 def copy_image_to_libvirt_pool(image_name):
     if not os.path.isfile("%s/%s" % (POOL_PATH,image_name)):
         copy(image_name, POOL_PATH)
-        system("virsh pool-refresh %s" % POOL)
 
-def clone_cloud_image(image_name):
+def create_qemu_image(image_name):
     copy_image_to_libvirt_pool(image_name)
-    return system(("virsh vol-clone --pool {0} {1} {2}.root.img && "
-                   "virsh vol-resize --pool {0} {2}.root.img {3}").format(POOL, image_name,
-                                                                 GUEST, VROOTDISKSIZE))[1:]
+    return system(("qemu-img create -f qcow2 -b {0} {1}/{2}.root.img {3}").format(image_name, POOL_PATH,
+                                                                              NAME, VROOTDISKSIZE))[1:]
 
 def create_vm():
-    return system(("virt-install "
+    return system(("virt-install --import "
                   "--name {0} "
                   "--ram {1} "
                   "--vcpus={2} "
-                  "--memballoon virtio "
-                  "--network {3} "
-                  "--boot hd "
-                  "--disk vol={4}/{0}.root.img,format={5},bus=virtio "
-                  "--disk vol={4}/{0}.configuration.iso,bus=virtio "
-                  "--noautoconsole").format(GUEST, VMEM, VCPUS, NETWORK, POOL, FORMAT))[1:]
+                  "--network bridge={3},model=virtio "
+                  "--disk path={4}/{0}.root.img "
+                  "--disk path={4}/{0}.configuration.iso "
+                  "--accelerate "
+                  "--force "
+                  "--graphics none").format(NAME, VMEM, VCPUS, BRIDGE, POOL_PATH))[1:]
 
 if __name__ == "__main__":
     parser = ArgumentParser(prog='vmcreation', description='Create virtual machine using KVM')
@@ -130,15 +107,11 @@ if __name__ == "__main__":
     if os.getuid():
         print "Execution Permision Denied (use sudo)"
         sys.exit(1)
-    err, returncode = create_pool()
+    err, returncode = create_cloud_init_iso()
     if returncode:
         sys.stderr.write(err)
         sys.exit(1)
-    err, returncode = copy_cloud_init_iso()
-    if returncode:
-        sys.stderr.write(err)
-        sys.exit(1)
-    err, returncode = clone_cloud_image(args.image)
+    err, returncode = create_qemu_image(args.image)
     if returncode:
         sys.stderr.write(err)
         sys.exit(1)
