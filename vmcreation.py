@@ -52,7 +52,6 @@ def system(cmd):
     :param cmd: The command to run.
     :return:  Tuple with (output, err, returncode).
     """
-    print cmd
     ret = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True)
     out, err = ret.communicate()
@@ -71,7 +70,12 @@ def get_user_data():
                  "ssh_pwauth: True\n")
     return user_data
 
+def create_required_dir():
+    if not os.path.isdir(POOL_PATH):
+        system("mkdir -p %s" % POOL_PATH)
+
 def create_cloud_init_iso():
+    create_required_dir()
     with open('user-data','w') as fh:
         fh.write(get_user_data())
     with open('meta-data','w') as fh:
@@ -119,3 +123,21 @@ if __name__ == "__main__":
     if returncode:
         sys.stderr.write(err)
         sys.exit(1)
+    print ("======================\n"
+           "To login to vm guest: "
+           "sudo virsh console {0}\n"
+           "Default user for cloud image is:\n"
+           "Fedora Image: fedora\n"
+           "Centos Image: centos\n"
+           "Red Hat Image: cloud-user\n"
+           "Ubuntu Image: ubuntu\n"
+           "Debian Image: debian\n"
+           "======================\n"
+           "Default password: passw0rd\n"
+           "======================\n"
+           "Shutdown vm guest: "
+           "sudo virsh shutdown {0}\n"
+           "======================\n"
+           "Destroy vm guest: "
+           "sudo virsh destroy {0} && "
+           "sudo virsh undefine {0}").format(NAME)
