@@ -41,6 +41,8 @@ VROOTDISKSIZE="10G"
 VCPUS=1
 VMEM=1024
 BRIDGE="virbr1"
+#sometimes the laptops have virbr0 and so should be set to zero.like 
+#BRIDGE="virbr0"
 NETWORK="bridge=virbr1,model=virtio"
 
 # guest image format
